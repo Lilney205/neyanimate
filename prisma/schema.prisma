@@ -1,0 +1,283 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  VIEWER
+  EDITOR
+  ADMIN
+}
+
+enum PublicationStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum AccessType {
+  FREE
+  PREMIUM
+}
+
+enum VideoProvider {
+  MEDIA_CORE
+  UNSUPPORTED
+}
+
+enum ProcessingStatus {
+  QUEUED
+  PROCESSING
+  READY
+  FAILED
+}
+
+enum AccountStatus {
+  ACTIVE
+  DISABLED
+}
+
+model User {
+  id              String        @id @default(cuid())
+  email           String?       @unique
+  emailVerifiedAt DateTime?
+  phone           String?       @unique
+  phoneVerifiedAt DateTime?
+  name            String
+  password        String?
+  role            UserRole      @default(VIEWER)
+  status          AccountStatus @default(ACTIVE)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  watchProgress       WatchProgress[]
+  watchlist           WatchlistItem[]
+  payments            Payment[]
+  entitlements        Entitlement[]
+  subscriptions       Subscription[]
+  auditLogs           AuditLog[]
+  sessions            Session[]
+  passwordResetTokens PasswordResetToken[]
+  authIdentities      AuthIdentity[]
+  playbackSessions    PlaybackSession[]
+
+  @@index([role, status, createdAt])
+}
+
+model AuthIdentity {
+  id                String   @id @default(cuid())
+  provider          String
+  providerAccountId String
+  userId            String
+  createdAt         DateTime @default(now())
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique
+  userId    String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
+model RateLimit {
+  key       String   @id
+  count     Int      @default(1)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([expiresAt])
+}
+
+model Film {
+  id                 String            @id @default(cuid())
+  slug               String            @unique
+  title              String
+  synopsis           String
+  genres             String[]
+  releaseYear        Int
+  duration           String
+  posterUrl          String?
+  backdropUrl        String?
+  status             PublicationStatus @default(DRAFT)
+  accessType         AccessType        @default(FREE)
+  isDemo             Boolean           @default(false)
+  featured           Boolean           @default(false)
+  contentRating      String?
+  targetAgeMin       Int?
+  targetAgeMax       Int?
+  learningObjectives String[]          @default([])
+  parentNotes        String?
+  trailerVideo       String?
+  mainVideoId        String?
+  publishedAt        DateTime?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  videoAssets      VideoAsset[]
+  watchProgress    WatchProgress[]
+  watchlist        WatchlistItem[]
+  entitlements     Entitlement[]
+  playbackSessions PlaybackSession[]
+
+  @@index([status, publishedAt])
+  @@index([releaseYear])
+  @@index([accessType, status])
+  @@index([status, slug])
+}
+
+model VideoAsset {
+  id               String           @id @default(cuid())
+  filmId           String
+  film             Film             @relation(fields: [filmId], references: [id], onDelete: Cascade)
+  provider         VideoProvider
+  providerVideoId  String
+  assetType        String
+  processingStatus ProcessingStatus @default(QUEUED)
+  duration         Int?
+  metadata         Json?
+  uploadedAt       DateTime?        @default(now())
+  processedAt      DateTime?
+  createdAt        DateTime         @default(now())
+
+  @@unique([provider, providerVideoId])
+  @@index([filmId])
+}
+
+model WebhookEvent {
+  id          String   @id @default(cuid())
+  provider    String
+  eventId     String
+  processedAt DateTime @default(now())
+
+  @@unique([provider, eventId])
+}
+
+model WatchProgress {
+  id        String   @id @default(cuid())
+  userId    String
+  filmId    String
+  position  Int      @default(0)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  film      Film     @relation(fields: [filmId], references: [id], onDelete: Cascade)
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, filmId])
+  @@index([userId])
+}
+
+model PlaybackSession {
+  id              String    @id @default(cuid())
+  tokenHash       String    @unique
+  userId          String?
+  filmId          String
+  startedAt       DateTime  @default(now())
+  firstPlayedAt   DateTime?
+  lastHeartbeatAt DateTime  @default(now())
+  endedAt         DateTime?
+  watchedSeconds  Int       @default(0)
+  lastPosition    Int       @default(0)
+  durationSeconds Int?
+  isPlaying       Boolean   @default(false)
+  completedAt     DateTime?
+  user            User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  film            Film      @relation(fields: [filmId], references: [id], onDelete: Cascade)
+
+  @@index([lastHeartbeatAt, endedAt])
+  @@index([firstPlayedAt])
+  @@index([filmId, firstPlayedAt])
+  @@index([userId, firstPlayedAt])
+}
+
+model WatchlistItem {
+  id        String   @id @default(cuid())
+  userId    String
+  filmId    String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  film      Film     @relation(fields: [filmId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, filmId])
+  @@index([userId])
+}
+
+model Payment {
+  id                    String    @id @default(cuid())
+  userId                String
+  provider              String
+  providerTransactionId String?   @unique
+  amountMinor           Int
+  currency              String
+  status                String
+  idempotencyKey        String?   @unique
+  verifiedAt            DateTime?
+  createdAt             DateTime  @default(now())
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  entitlements Entitlement[]
+}
+
+model Entitlement {
+  id         String     @id @default(cuid())
+  userId     String
+  filmId     String?
+  accessType AccessType
+  startsAt   DateTime?
+  expiresAt  DateTime?
+  status     String     @default("ACTIVE")
+  paymentId  String?
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  film       Film?      @relation(fields: [filmId], references: [id], onDelete: Cascade)
+  payment    Payment?   @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+
+  @@index([userId, status])
+}
+
+model Subscription {
+  id                     String    @id @default(cuid())
+  userId                 String
+  providerSubscriptionId String?   @unique
+  plan                   String
+  status                 String
+  startedAt              DateTime  @default(now())
+  renewedAt              DateTime?
+  cancelledAt            DateTime?
+  user                   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AuditLog {
+  id           String   @id @default(cuid())
+  actorId      String?
+  actor        User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  action       String
+  resourceType String
+  resourceId   String?
+  metadata     Json?
+  createdAt    DateTime @default(now())
+
+  @@index([resourceType, resourceId])
+}
